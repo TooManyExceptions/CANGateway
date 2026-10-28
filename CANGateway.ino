@@ -1,13 +1,20 @@
 #include <mcp_can.h>
 #include <SPI.h>
 
-#define STANDARD_BUS_CHIP_SELECT_PIN   8
-#define STANDARD_BUS_INTERRUPT_PIN     2
-#define EXTENDED_BUS_CHIP_SELECT_PIN   9
-#define EXTENDED_BUS_INTERRUPT_PIN     3
-#define INTERRUPT_TRIGGER            LOW
+#define STANDARD_BUS_CHIP_SELECT_PIN       8
+#define STANDARD_BUS_INTERRUPT_PIN         2
+#define EXTENDED_BUS_CHIP_SELECT_PIN       9
+#define EXTENDED_BUS_INTERRUPT_PIN         3
+#define INTERRUPT_TRIGGER            FALLING
 
 #define MAX_FRAMES                    64 // 1 to 256 (because length is uint8_t)
+
+
+enum BusSymbol
+{
+  Extended,
+  Standard
+};
 
 // A way to bundle the raw information back from mcp_can library.
 struct Frame
@@ -15,6 +22,7 @@ struct Frame
   uint32_t id_with_flags;
   uint8_t dataLength;
   uint8_t data[8];
+  BusSymbol busSentOn;
 };
 
 struct FrameQueue
@@ -60,30 +68,54 @@ struct FrameQueue
   }
 };
 
-MCP_CAN CanWithInterupt(int bus_pin, int interupt_pin, void (*isr)())
+void startCanWithInterupt(MCP_CAN* bus, int interupt_pin, void (*isr)())
 {
+  Serial.print("About to add interupt...");
   attachInterrupt(digitalPinToInterrupt(interupt_pin), isr, INTERRUPT_TRIGGER);
-  return new MCP_CAN(bus_pin);
+  
+  bus->setMode(MCP_NORMAL);
+  if (bus->begin(MCP_ANY, CAN_500KBPS, MCP_16MHZ) == CAN_OK)
+  {
+    Serial.print("Initialised Successfully with:\n\tINT Pin: ");
+    Serial.println(interupt_pin);
+  } else
+  {
+    Serial.println("Error Initialising");
+  }
 }
 
-volatile MCP_CAN standard = CanWithInterupt(STANDARD_BUS_CHIP_SELECT_PIN, STANDARD_BUS_INTERRUPT_PIN, recieveStandard);
-volatile MCP_CAN extended = CanWithInterupt(EXTENDED_BUS_CHIP_SELECT_PIN, EXTENDED_BUS_INTERRUPT_PIN, recieveExtended);
+volatile MCP_CAN standard = MCP_CAN(STANDARD_BUS_CHIP_SELECT_PIN);
+volatile MCP_CAN extended = MCP_CAN(EXTENDED_BUS_CHIP_SELECT_PIN);
 
 volatile FrameQueue queue;
 
 void recieveStandard()
 {
-  recieve(&standard);
+  Serial.println("Standard recieved");
+  recieve(&standard, Standard);
 }
 void recieveExtended()
 {
-  recieve(&extended);
+  Serial.println("Extended recieved");
+  recieve(&extended, Extended);
 }
-void recieve(MCP_CAN* bus)
-{
+void recieve(MCP_CAN* bus, BusSymbol busSentOn)
+{ 
   Frame* frame = queue.enqueue();
   
   bus->readMsgBuf(&frame->id_with_flags, &frame->dataLength, (uint8_t*) &frame->data);
+  frame->busSentOn = busSentOn;
+}
+
+void serialDebugFrame(int8_t sendMsgBufReturn)
+{
+  if (sendMsgBufReturn == CAN_OK)
+  {
+    Serial.println("Frame sent successfully");
+  } else
+  {
+    Serial.println("Error sending frame");
+  }
 }
 
 uint32_t convertToStandard(uint32_t id_with_flags)
@@ -93,8 +125,11 @@ uint32_t convertToStandard(uint32_t id_with_flags)
 
 void setup()
 {
-	standard.setMode(MCP_NORMAL);   // Change to normal mode to allow messages to be transmitted
-	extended.setMode(MCP_NORMAL);   // Change to normal mode to allow messages to be transmitted
+  Serial.begin(115200);
+  Serial.println("Serial Started");
+  
+  startCanWithInterupt(&standard, STANDARD_BUS_INTERRUPT_PIN, recieveStandard);
+  startCanWithInterupt(&extended, EXTENDED_BUS_INTERRUPT_PIN, recieveExtended);
 }
 
 void loop()
@@ -106,23 +141,31 @@ void loop()
 
     if ((id_with_flags & 0x80000000) == 0x80000000)
     {
-      // Extended frame, so translate and forward
-      if (standard.sendMsgBuf(convertToStandard(id_with_flags), 0, frame->dataLength, frame->data) == CAN_OK)
+      // Extended frame recieved:
+      switch (frame->busSentOn)
       {
-        Serial.println("Frame sent successfully");
-      } else
-      {
-        Serial.println("Error sending frame");
+        case Extended:
+          // Translate and forward to standard bus
+          serialDebugFrame(standard.sendMsgBuf(convertToStandard(id_with_flags), 0, frame->dataLength, frame->data));
+          break;
+        case Standard:
+          // Forward to the extended bus
+          serialDebugFrame(extended.sendMsgBuf(id_with_flags, 0, frame->dataLength, frame->data));
+          break;
       }
     } else
-    {
-      // Standard frame, so just forward
-      if (extended.sendMsgBuf(id_with_flags, frame->dataLength, frame->data) == CAN_OK)
+    { 
+      // Standard frame, so forward to correct bus
+      switch (frame->busSentOn)
       {
-        Serial.println("Frame sent successfully");
-      } else
-      {
-        Serial.println("Error sending frame");
+        case Extended:
+          // Forward to standard bus
+          serialDebugFrame(standard.sendMsgBuf(id_with_flags, frame->dataLength, frame->data));
+          break;
+        case Standard:
+          // Forward to the extended bus
+          serialDebugFrame(extended.sendMsgBuf(id_with_flags, frame->dataLength, frame->data));
+          break;
       }
     }
   }
