@@ -1,10 +1,13 @@
 This project aims to act as a gateway between CAN 2.0A and 2.0B devices. It uses the [mcp_can](https://github.com/coryjfowler/MCP_CAN_lib) library.
 
-# CAN Buses
 This hasn't been tested yet but should receive CAN frames on two buses (one for devices which only support standard IDs and one for extended IDs).\
 Then once a frame has been received:
 - if it has an extended ID: the ID gets truncated to 11 bits and is sent on the other bus
 - if it has a standard ID: the ID is sent, as is, to the other bus
+
+# Hardware:
+Should work on any arduino which supports attaching interrupts to 2 pins. I'm using an Arduino Uno and Nano.
+Uses two SPI MCP2515 modules.
 
 # Implementation:
 It uses interrupt service routine procedures for each buses interrupt pin (activated on LOW), if the interrupt is triggered the frame is read from the bus and added to a queue (without further translation). Then in the main loop procedure, if there are any frames in this queue, they are sent to the other bus and translated if necessary.
