@@ -100,7 +100,7 @@ void recieveExtended()
   recieve(&extended, Extended);
 }
 void recieve(MCP_CAN* bus, BusSymbol busSentOn)
-{ 
+{
   Frame* frame = queue.enqueue();
   
   bus->readMsgBuf(&frame->id_with_flags, &frame->dataLength, (uint8_t*) &frame->data);
@@ -120,7 +120,7 @@ void serialDebugFrame(int8_t sendMsgBufReturn)
 
 uint32_t convertToStandard(uint32_t id_with_flags)
 {
-  return id_with_flags & ((1 << 11) - 1); // Truncates all bits except the 11 bits at the beginning
+  return id_with_flags & (((1 << 11) - 1) | 0x40000000); // Truncates all bits except the 11 bits at the beginning, and keeps remote frame bit.
 }
 
 void setup()

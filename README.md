@@ -11,7 +11,7 @@ Uses two SPI MCP2515 modules.
 
 # Implementation:
 It uses interrupt service routine procedures for each buses interrupt pin (activated on LOW), if the interrupt is triggered the frame is read from the bus and added to a queue (without further translation). Then in the main loop procedure, if there are any frames in this queue, they are sent to the other bus and translated if necessary.
-If you'd like to change the translation to something else, such as a table lookup, you can change the `convertToStandard` function.
+If you'd like to change the translation to something else, such as a table lookup, you can change the `convertToStandard` function. Just make sure to keep the remote bit (0x40000000).
 
 # Considerations:
 - If the frame queue is full when receiving a new frame, the oldest frame (which hasn't been sent) will be overridden. This also means that you don't need to check if the queue is full before enqueueing.
