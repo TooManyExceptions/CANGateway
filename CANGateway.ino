@@ -7,7 +7,7 @@
 #define EXTENDED_BUS_INTERRUPT_PIN         3
 #define INTERRUPT_TRIGGER            FALLING
 
-#define MAX_FRAMES                    64 // 1 to 256 (because length is uint8_t)
+#define MAX_FRAMES                        64 // 1 to 256 (because length is uint8_t)
 
 
 enum BusSymbol
@@ -71,7 +71,10 @@ struct FrameQueue
 void startCanWithInterupt(MCP_CAN* bus, int interupt_pin, void (*isr)())
 {
   Serial.print("About to add interupt...");
-  attachInterrupt(digitalPinToInterrupt(interupt_pin), isr, INTERRUPT_TRIGGER);
+  
+  int interupt_pin_result = digitalPinToInterrupt(interupt_pin);
+  attachInterrupt(interupt_pin_result, isr, INTERRUPT_TRIGGER);
+  SPI.usingInterrupt(interupt_pin_result);
   
   bus->setMode(MCP_NORMAL);
   if (bus->begin(MCP_ANY, CAN_500KBPS, MCP_16MHZ) == CAN_OK)
