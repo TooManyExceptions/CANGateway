@@ -23,6 +23,61 @@ struct Frame
   uint8_t dataLength;
   uint8_t data[8];
   BusSymbol busSentOn;
+
+  void display()
+  {
+    Serial.print("Sent on ");
+    switch (busSentOn)
+    {
+      case Standard:
+        Serial.print("standard ");
+        break;
+      case Extended:
+        Serial.print("extended ");
+        break;
+    }
+    Serial.println("bus");
+    
+    Serial.print("ID type: ");
+    if ((id_with_flags & 0x80000000) == 0x80000000)
+    {
+      // Extended frame
+
+      Serial.println("extended");
+    } else
+    {
+      // Standard frame
+      Serial.println("standard");
+    }
+
+    Serial.print("Frame Type: ");
+    if ((id_with_flags & 0x40000000) == 0x40000000)
+    {
+      Serial.println("remote");
+    } else
+    {
+      Serial.println("data");
+      Serial.print("Data:");
+        
+      char dataStr[128];
+
+      for (byte i = 0; i < dataLength; i++)
+      {
+        sprintf(dataStr, " 0x%.2X", data[i]);
+        Serial.print(dataStr);
+      }
+      Serial.println();
+    }
+
+    Serial.print("ID: ");
+    Serial.println(id_with_flags & ((1UL << 29) - 1));
+    
+    Serial.print("ID with flags: ");
+    Serial.println(id_with_flags);
+
+    Serial.print("Data Length: ");
+    Serial.println(dataLength);
+  }
 };
 
 struct FrameQueue
@@ -70,17 +125,22 @@ struct FrameQueue
 
 void startCanWithInterupt(MCP_CAN* bus, int interupt_pin, void (*isr)())
 {
-  Serial.print("About to add interupt...");
+  Serial.println("About to add interupt...");
   
   int interupt_pin_result = digitalPinToInterrupt(interupt_pin);
   attachInterrupt(interupt_pin_result, isr, INTERRUPT_TRIGGER);
   SPI.usingInterrupt(interupt_pin_result);
+  Serial.println("Interupt added");
   
-  bus->setMode(MCP_NORMAL);
+  Serial.println("Beginning bus...");
   if (bus->begin(MCP_ANY, CAN_500KBPS, MCP_16MHZ) == CAN_OK)
   {
     Serial.print("Initialised Successfully with:\n\tINT Pin: ");
     Serial.println(interupt_pin);
+    
+    Serial.println("Setting up bus mode...");
+    bus->setMode(MCP_NORMAL);
+    Serial.println("Bus mode set");
   } else
   {
     Serial.println("Error Initialising");
@@ -123,12 +183,14 @@ void serialDebugFrame(int8_t sendMsgBufReturn)
 
 uint32_t convertToStandard(uint32_t id_with_flags)
 {
-  return id_with_flags & (((1 << 11) - 1) | 0x40000000); // Truncates all bits except the 11 bits at the beginning, and keeps remote frame bit.
+  return id_with_flags & (((1UL << 11) - 1) | 0x40000000); // Truncates all bits except the 11 bits at the beginning, and keeps remote frame bit.
 }
 
 void setup()
 {
   Serial.begin(115200);
+  while (!Serial) {}
+  
   Serial.println("Serial Started");
   
   startCanWithInterupt(&standard, STANDARD_BUS_INTERRUPT_PIN, recieveStandard);
@@ -140,6 +202,7 @@ void loop()
   while (!queue.empty())
   {
     Frame* frame = queue.dequeue();
+    frame->display();
     uint32_t id_with_flags = frame->id_with_flags;
 
     if ((id_with_flags & 0x80000000) == 0x80000000)
@@ -149,11 +212,11 @@ void loop()
       {
         case Extended:
           // Translate and forward to standard bus
-          serialDebugFrame(standard.sendMsgBuf(convertToStandard(id_with_flags), 0, frame->dataLength, frame->data));
+          serialDebugFrame(standard.sendMsgBuf(convertToStandard(id_with_flags), frame->dataLength, frame->data));
           break;
         case Standard:
           // Forward to the extended bus
-          serialDebugFrame(extended.sendMsgBuf(id_with_flags, 0, frame->dataLength, frame->data));
+          serialDebugFrame(extended.sendMsgBuf(id_with_flags, frame->dataLength, frame->data));
           break;
       }
     } else
